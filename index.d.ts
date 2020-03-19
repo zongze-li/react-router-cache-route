@@ -8,6 +8,7 @@ export interface CacheRouteProps extends RouteProps {
   when?: 'forward' | 'back' | 'always' | ((props: CacheRouteProps) => boolean)
   behavior?: (isCached: boolean) => object | void
   cacheKey?: string
+  cacheKeyHook?: (key: string, props: any) => string,
   unmount?: boolean
   saveScrollPosition?: boolean
   multiple?: boolean | number

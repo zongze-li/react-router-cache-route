@@ -35,6 +35,7 @@ export default class CacheRoute extends Component {
       when,
       behavior,
       cacheKey,
+      cacheKeyHook,
       unmount,
       saveScrollPosition,
       computedMatchForCacheRoute,
@@ -103,7 +104,8 @@ export default class CacheRoute extends Component {
           )
 
           if (multiple && isMatchCurrentRoute) {
-            this.cache[currentPathname] = {
+            const curCacheKey = cacheKeyHook ? cacheKeyHook(currentPathname, props) : currentPathname;
+            this.cache[curCacheKey] = {
               updateTime: Date.now(),
               render: renderSingle
             }
@@ -120,8 +122,10 @@ export default class CacheRoute extends Component {
           return multiple ? (
             <Fragment>
               {Object.entries(this.cache).map(([pathname, { render }]) => {
+                const curCacheKey = cacheKeyHook ? cacheKeyHook(currentPathname, props) : currentPathname;
+
                 const recomputedMatch =
-                  pathname === currentPathname ? match || computedMatch : null
+                  pathname === curCacheKey ? match || computedMatch : null
 
                 return (
                   <Fragment key={pathname}>
