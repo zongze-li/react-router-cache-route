@@ -527,6 +527,34 @@
         }
       };
 
+      _this.clearCache = function () {
+        var _this$props = _this.props,
+            cacheKeyConfig = _this$props.cacheKey,
+            unmount = _this$props.unmount;
+
+
+        if (get(cacheKeyConfig, 'multiple')) {
+          var cacheKey = cacheKeyConfig.cacheKey,
+              pathname = cacheKeyConfig.pathname;
+
+          var cache = _extends({}, getCache()[cacheKey]);
+
+          delete cache[pathname];
+
+          if (Object.keys(cache).length === 0) {
+            remove(cacheKey);
+          } else {
+            register(cacheKey, cache);
+          }
+        } else {
+          remove(cacheKeyConfig);
+        }
+
+        if (unmount) {
+          _this.injectDOM();
+        }
+      };
+
       _this.reset = function () {
         delete _this.__revertScrollPos;
 
@@ -604,6 +632,7 @@
           if (!(willDrop || willRecover) && this.props.saveScrollPosition) {
             this.__revertScrollPos = saveScrollPosition(this.props.unmount ? this.wrapper : undefined);
           }
+          if (!nextState.cached) ;
         }
 
         return shouldUpdate;
@@ -611,31 +640,7 @@
     }, {
       key: 'componentWillUnmount',
       value: function componentWillUnmount() {
-        var _props = this.props,
-            cacheKeyConfig = _props.cacheKey,
-            unmount = _props.unmount;
-
-
-        if (get(cacheKeyConfig, 'multiple')) {
-          var cacheKey = cacheKeyConfig.cacheKey,
-              pathname = cacheKeyConfig.pathname;
-
-          var cache = _extends({}, getCache()[cacheKey]);
-
-          delete cache[pathname];
-
-          if (Object.keys(cache).length === 0) {
-            remove(cacheKey);
-          } else {
-            register(cacheKey, cache);
-          }
-        } else {
-          remove(cacheKeyConfig);
-        }
-
-        if (unmount) {
-          this.injectDOM();
-        }
+        this.clearCache();
       }
     }, {
       key: 'render',
@@ -645,11 +650,11 @@
         var _state = this.state,
             matched = _state.matched,
             cached = _state.cached;
-        var _props2 = this.props,
-            _props2$className = _props2.className,
-            propsClassName = _props2$className === undefined ? '' : _props2$className,
-            behavior = _props2.behavior,
-            children = _props2.children;
+        var _props = this.props,
+            _props$className = _props.className,
+            propsClassName = _props$className === undefined ? '' : _props$className,
+            behavior = _props.behavior,
+            children = _props.children;
 
         var _value = value(run(behavior, undefined, !matched), {}),
             _value$className = _value.className,
@@ -736,21 +741,119 @@
   var CacheRoute = function (_Component) {
     inherits(CacheRoute, _Component);
 
-    function CacheRoute() {
-      var _ref;
-
-      var _temp, _this, _ret;
-
+    function CacheRoute(props) {
       classCallCheck(this, CacheRoute);
 
-      for (var _len = arguments.length, args = Array(_len), _key = 0; _key < _len; _key++) {
-        args[_key] = arguments[_key];
-      }
+      var _this = possibleConstructorReturn(this, (CacheRoute.__proto__ || Object.getPrototypeOf(CacheRoute)).call(this, props));
 
-      return _ret = (_temp = (_this = possibleConstructorReturn(this, (_ref = CacheRoute.__proto__ || Object.getPrototypeOf(CacheRoute)).call.apply(_ref, [this].concat(args))), _this), _this.cache = {}, _temp), possibleConstructorReturn(_this, _ret);
+      _initialiseProps.call(_this);
+
+      var history = props.history,
+          multiple = props.multiple,
+          path = props.path,
+          when = props.when,
+          cacheKeyHook = props.cacheKeyHook;
+
+      _this.history = history;
+      if (multiple && history) {
+        var curCacheKey = cacheKeyHook ? cacheKeyHook(path, _extends({}, _this.props, { history: { action: action, location: location } })) : path;
+        var renderSingle = function renderSingle(props) {
+          var _this$props = _this.props,
+              component = _this$props.component,
+              render = _this$props.render,
+              children = _this$props.children;
+
+          return React__default.createElement(
+            CacheComponent,
+            props,
+            function (cacheLifecycles) {
+              return React__default.createElement(
+                Updatable,
+                { when: isMatch(props.match) },
+                function () {
+                  Object.assign(props, { cacheLifecycles: cacheLifecycles });
+
+                  if (component) {
+                    return React__default.createElement(component, props);
+                  }
+
+                  return run(render || children, undefined, props);
+                }
+              );
+            }
+          );
+        };
+
+        _this.cache[curCacheKey] = [{
+          updateTime: Date.now(),
+          render: renderSingle
+        }];
+        _this.prevPathname = history.location.pathname;
+        _this.nextPathname = _this.prevPathname;
+
+        var disposer = history.listen(function (location, action) {
+          console.log('location pathname', action, location.pathname, window.location.pathname, history.location.pathname);
+          _this.prevPathname = _this.nextPathname;
+          _this.nextPathname = location.pathname;
+          var cacheKeyHook = _this.props.cacheKeyHook;
+
+          var shouldCached = _this.shouldCache(action, when, _extends({}, _this.props, { history: { action: action, location: location } }));
+
+          if (_this.nextPathname === path) {
+            if (shouldCached || action === "REPLACE") {
+              var _curCacheKey = cacheKeyHook ? cacheKeyHook(_this.nextPathname, _extends({}, _this.props, { history: { action: action, location: location } })) : _this.nextPathname;
+              if (path === '/') {
+                _this.cache[_curCacheKey].forEach(function (item) {
+                  dropByCacheKey(_curCacheKey + '__' + item.updateTime);
+                });
+                _this.cache[_curCacheKey] = [];
+              }
+              _this.cache[_curCacheKey] = [{
+                updateTime: Date.now(),
+                render: renderSingle
+              }].concat(_this.cache[_curCacheKey] || []);
+              if (path === '/') {
+                _this.forceUpdate();
+              }
+            }
+          } else if (_this.prevPathname === path) {
+            if (!shouldCached || action === "REPLACE") {
+              var _curCacheKey2 = cacheKeyHook ? cacheKeyHook(_this.prevPathname, _extends({}, _this.props, { history: { action: action, location: location } })) : _this.prevPathname;
+              if (_this.cache[_curCacheKey2]) {
+                _this.cache[_curCacheKey2].shift();
+              }
+            }
+          }
+
+          switch (action) {
+            case 'PUSH':
+              console.log('hugo history push');
+              break;
+            case 'POP':
+              console.log('hugo history pop');
+              break;
+            case 'REPLACE':
+              console.log('hugo history replace');
+              break;
+            default:
+              console.log('hugo history action: ' + action);
+              break;
+          }
+        });
+        _this.disposers.push(disposer);
+      }
+      // todo: 手动match focus flur
+      return _this;
     }
 
     createClass(CacheRoute, [{
+      key: 'componentWillUnmount',
+      value: function componentWillUnmount() {
+        this.disposers.forEach(function (disposer) {
+          return disposer && disposer();
+        });
+      }
+    }, {
       key: 'render',
       value: function render() {
         var _this2 = this;
@@ -763,11 +866,12 @@
             when = _props.when,
             behavior = _props.behavior,
             cacheKey = _props.cacheKey,
+            cacheKeyHook = _props.cacheKeyHook,
             unmount = _props.unmount,
             saveScrollPosition$$1 = _props.saveScrollPosition,
             computedMatchForCacheRoute = _props.computedMatchForCacheRoute,
             multiple = _props.multiple,
-            restProps = objectWithoutProperties(_props, ['children', 'render', 'component', 'className', 'when', 'behavior', 'cacheKey', 'unmount', 'saveScrollPosition', 'computedMatchForCacheRoute', 'multiple']);
+            restProps = objectWithoutProperties(_props, ['children', 'render', 'component', 'className', 'when', 'behavior', 'cacheKey', 'cacheKeyHook', 'unmount', 'saveScrollPosition', 'computedMatchForCacheRoute', 'multiple']);
 
         /**
          * Note:
@@ -809,8 +913,6 @@
 
               var isMatchCurrentRoute = isMatch(props.match);
               var currentPathname = location.pathname;
-
-              var maxMultipleCount = isNumber(multiple) ? multiple : Infinity;
               var configProps = {
                 when: when,
                 className: className,
@@ -842,50 +944,114 @@
                 );
               };
 
-              if (multiple && isMatchCurrentRoute) {
-                _this2.cache[currentPathname] = {
-                  updateTime: Date.now(),
-                  render: renderSingle
-                };
+              var _ref = props.history || {},
+                  action = _ref.action;
 
-                Object.entries(_this2.cache).sort(function (_ref2, _ref3) {
-                  var _ref5 = slicedToArray(_ref2, 2),
-                      prev = _ref5[1];
+              var curCacheKey = cacheKeyHook ? cacheKeyHook(currentPathname, props) : currentPathname;
+              // if (multiple && isMatchCurrentRoute) {
+              //   if (!this.cache[curCacheKey]) {
+              //     this.cache[curCacheKey] = [
+              //       {
+              //         updateTime: Date.now(),
+              //         render: renderSingle
+              //       }
+              //     ]
+              //   }
+              // }
+              /* if (multiple && isMatchCurrentRoute) {
+                // todo: when or default when to new or del or replace
+                const shouldCached = this.shouldCache(action, when, { ...props, ...configProps });
+                if (shouldCached || action === 'REPLACE') {
+                  this.cache[curCacheKey] = [
+                    {
+                      updateTime: Date.now(),
+                      render: renderSingle
+                    }
+                  ]
+                    .concat(this.cache[curCacheKey])
+                    .filter(v => v)
+                    // .concat()
+                } else {
+                  // if (!shouldCached) {
+                  //   if (this.cache[curCacheKey]) {
+                  //     this.cache[curCacheKey].pop();
+                  //   }
+                  // }
+                }
+                  const legalCache = Object.entries(this.cache).reduce((acc, cur) => {
+                  acc = acc.concat((cur[1] || []).map(item => [cur[0], item]));
+                  return acc;
+                }, [])
+                  // N.B: sort DESC by updateTime
+                  .sort(([, prev], [, next]) => next.updateTime - prev.updateTime)
+                  .reduce((acc, [pathname, item], idx) => {
+                    if (idx < maxMultipleCount) {
+                      acc.push([pathname, item]);
+                    }
+                    return acc;
+                  }, [])
+                  .reduce((acc, [pathname, item]) => {
+                    if (!acc[pathname]) {
+                      acc[pathname] = []
+                    };
+                    acc[pathname].push(item);
+                    return acc;
+                  }, {});
+                    this.cache = legalCache;
+              } */
 
-                  var _ref4 = slicedToArray(_ref3, 2),
-                      next = _ref4[1];
+              //   this.cache[curCacheKey] = {
+              //     updateTime: Date.now(),
+              //     render: renderSingle
+              //   }
 
-                  return next.updateTime - prev.updateTime;
-                }).forEach(function (_ref6, idx) {
-                  var _ref7 = slicedToArray(_ref6, 1),
-                      pathname = _ref7[0];
-
-                  if (idx >= maxMultipleCount) {
-                    delete _this2.cache[pathname];
-                  }
-                });
-              }
+              //   Object.entries(this.cache)
+              //     .sort(([, prev], [, next]) => next.updateTime - prev.updateTime)
+              //     .forEach(([pathname], idx) => {
+              //       if (idx >= maxMultipleCount) {
+              //         delete this.cache[pathname]
+              //       }
+              //     })
+              // }
 
               return multiple ? React__default.createElement(
                 React.Fragment,
                 null,
-                Object.entries(_this2.cache).map(function (_ref8) {
-                  var _ref9 = slicedToArray(_ref8, 2),
-                      pathname = _ref9[0],
-                      render = _ref9[1].render;
+                Object.entries(_this2.cache).reduce(function (acc, cur) {
+                  acc = acc.concat((cur[1] || []).map(function (item) {
+                    return [cur[0], item];
+                  }));
+                  return acc;
+                }, []).map(function (item) {
+                  var _item = slicedToArray(item, 2),
+                      pathname = _item[0],
+                      _item$ = _item[1],
+                      render = _item$.render,
+                      updateTime = _item$.updateTime;
 
-                  var recomputedMatch = pathname === currentPathname ? match || computedMatch : null;
+                  var curCacheKey = cacheKeyHook ? cacheKeyHook(currentPathname, props) : currentPathname;
+
+                  var recomputedMatch = pathname === curCacheKey ? match || computedMatch : null;
+                  var cachedComps = _this2.cache[pathname].slice();
+
+                  if (recomputedMatch) {
+                    if (item[1] !== cachedComps[0]) {
+                      recomputedMatch = false;
+                    }
+                  }
+
+                  var cacheId = cacheKey + '__' + updateTime;
 
                   return React__default.createElement(
                     React.Fragment,
-                    { key: pathname },
+                    { key: cacheId },
                     render(_extends({}, props, configProps, {
                       cacheKey: cacheKey ? {
-                        cacheKey: cacheKey,
+                        cacheKey: cacheId,
                         pathname: pathname,
                         multiple: true
                       } : undefined,
-                      key: pathname,
+                      key: cacheId,
                       match: recomputedMatch
                     }))
                   );
@@ -909,6 +1075,36 @@
   };
   CacheRoute.defaultProps = {
     multiple: false
+  };
+
+  var _initialiseProps = function _initialiseProps() {
+    this.history = undefined;
+    this.disposers = [];
+    this.cache = {};
+
+    this.shouldCache = function (action, when, props) {
+      var __cancel__cache = false;
+      if (isFunction(when)) {
+        __cancel__cache = !when(props);
+      } else {
+        switch (when) {
+          case 'always':
+            break;
+          case 'back':
+            if (['PUSH', 'REPLACE'].includes(action)) {
+              __cancel__cache = true;
+            }
+
+            break;
+          case 'forward':
+          default:
+            if (action === 'POP') {
+              __cancel__cache = true;
+            }
+        }
+      }
+      return !__cancel__cache;
+    };
   };
 
   function getFragment() {
