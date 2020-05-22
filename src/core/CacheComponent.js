@@ -250,12 +250,19 @@ export default class CacheComponent extends Component {
           this.props.unmount ? this.wrapper : undefined
         )
       }
+      if (!nextState.cached) {
+        // this.clearCache();
+      }
     }
 
     return shouldUpdate
   }
 
   componentWillUnmount() {
+    this.clearCache();
+  }
+
+  clearCache = () => {
     const { cacheKey: cacheKeyConfig, unmount } = this.props
 
     if (get(cacheKeyConfig, 'multiple')) {
